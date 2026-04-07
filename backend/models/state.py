@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 class AgentState(str, Enum):
@@ -33,3 +33,5 @@ class OrderData(BaseModel):
     shipping_partner: str = ""
     delivery_time_estimate: int = 0
     metrics: Dict[str, float] = {}
+    inventory_catalog: List[Dict[str, Any]] = []
+    selected_sku: str = ""

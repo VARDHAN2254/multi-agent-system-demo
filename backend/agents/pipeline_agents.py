@@ -11,6 +11,79 @@ def seeded_random(seed: int, salt: int):
     val = val ^ (val >> 15)
     return (val & 0xFFFFFFFF) / 0xFFFFFFFF
 
+INVENTORY_CATALOG = [
+    {
+        "sku": "NVK-1001",
+        "name": "MacBook Pro M3",
+        "category": "Laptops",
+        "image": "https://picsum.photos/seed/novakart-macbook/720/480",
+        "price": 1999.99,
+    },
+    {
+        "sku": "NVK-1002",
+        "name": "Samsung S24 Ultra",
+        "category": "Mobiles",
+        "image": "https://picsum.photos/seed/novakart-s24/720/480",
+        "price": 1199.99,
+    },
+    {
+        "sku": "NVK-1003",
+        "name": "Nike Air Max",
+        "category": "Footwear",
+        "image": "https://picsum.photos/seed/novakart-nike/720/480",
+        "price": 129.99,
+    },
+    {
+        "sku": "NVK-1004",
+        "name": "Sony WH-1000XM5",
+        "category": "Audio",
+        "image": "https://picsum.photos/seed/novakart-sony/720/480",
+        "price": 348.00,
+    },
+    {
+        "sku": "NVK-1005",
+        "name": "Nintendo Switch",
+        "category": "Gaming",
+        "image": "https://picsum.photos/seed/novakart-switch/720/480",
+        "price": 299.00,
+    },
+    {
+        "sku": "NVK-1006",
+        "name": "Dyson V15 Detect",
+        "category": "Home",
+        "image": "https://picsum.photos/seed/novakart-dyson/720/480",
+        "price": 699.99,
+    },
+    {
+        "sku": "NVK-1007",
+        "name": "Amazon Echo Dot",
+        "category": "Smart Home",
+        "image": "https://picsum.photos/seed/novakart-echo/720/480",
+        "price": 49.99,
+    },
+    {
+        "sku": "NVK-1008",
+        "name": "Apple Watch Series 9",
+        "category": "Wearables",
+        "image": "https://picsum.photos/seed/novakart-watch/720/480",
+        "price": 399.00,
+    },
+    {
+        "sku": "NVK-1009",
+        "name": "LG C3 OLED TV",
+        "category": "TVs",
+        "image": "https://picsum.photos/seed/novakart-lg-tv/720/480",
+        "price": 1499.99,
+    },
+    {
+        "sku": "NVK-1010",
+        "name": "Kindle Paperwhite",
+        "category": "E-Readers",
+        "image": "https://picsum.photos/seed/novakart-kindle/720/480",
+        "price": 139.99,
+    },
+]
+
 class OrderAgent:
     def process(self, order_id: str, seed: int) -> OrderData:
         time.sleep(0.5) 
@@ -32,15 +105,51 @@ class OrderAgent:
 class InventoryAgent:
     def process(self, order: OrderData, seed: int) -> OrderData:
         time.sleep(0.8)
-        r = seeded_random(seed, int(order.order_id))
-        
-        # Determine stock level randomly based on seed
-        order.stock_confidence = 0.5 + (r * 0.5) # 0.5 to 1.0
-        if order.stock_confidence > 0.6:
-            order.stock_status = "In Stock"
-        else:
+
+        catalog = []
+        selected_item = None
+        order_number = int(order.order_id)
+
+        for idx, item in enumerate(INVENTORY_CATALOG):
+            stock_noise = seeded_random(seed, (order_number * 1000) + (idx * 97))
+            stock_units = int(2 + (stock_noise * 28))
+
+            if stock_units > 12:
+                stock_status = "In Stock"
+            elif stock_units > 5:
+                stock_status = "Low Stock"
+            else:
+                stock_status = "Out of Stock"
+
+            catalog_item = {
+                **item,
+                "stock_units": stock_units,
+                "stock_status": stock_status,
+            }
+            catalog.append(catalog_item)
+
+            if item["name"] == order.item_name:
+                selected_item = catalog_item
+
+        if selected_item is None and catalog:
+            selected_item = catalog[0]
+
+        order.inventory_catalog = catalog
+        order.selected_sku = selected_item["sku"] if selected_item else ""
+
+        confidence_noise = seeded_random(seed, (order_number * 17) + 5)
+        base_confidence = 0.5 + (confidence_noise * 0.5)
+
+        if selected_item and selected_item["stock_status"] == "Out of Stock":
+            order.stock_confidence = min(base_confidence, 0.56)
             order.stock_status = "Low Stock"
-            
+        elif selected_item and selected_item["stock_status"] == "Low Stock":
+            order.stock_confidence = min(max(base_confidence, 0.58), 0.69)
+            order.stock_status = "Low Stock"
+        else:
+            order.stock_confidence = max(base_confidence, 0.72)
+            order.stock_status = "In Stock"
+
         return order
 
 class PaymentAgent:

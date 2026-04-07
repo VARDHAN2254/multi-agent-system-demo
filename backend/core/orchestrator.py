@@ -44,7 +44,18 @@ class PipelineOrchestrator:
             # 2. Verified (Inventory)
             self._log_state(run_id, "InventoryAgent", AgentState.VERIFIED, order_id, {})
             order = self.inventory_agent.process(order, seed)
-            self._log_state(run_id, "InventoryAgent", AgentState.VERIFIED, order_id, {"stock_status": order.stock_status, "confidence": order.stock_confidence})
+            self._log_state(
+                run_id,
+                "InventoryAgent",
+                AgentState.VERIFIED,
+                order_id,
+                {
+                    "stock_status": order.stock_status,
+                    "confidence": order.stock_confidence,
+                    "selected_sku": order.selected_sku,
+                    "inventory_catalog": order.inventory_catalog,
+                },
+            )
             
             # Retry mechanism for Payment & Delivery Check
             max_retries = 2
