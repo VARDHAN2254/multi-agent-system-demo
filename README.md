@@ -94,7 +94,7 @@ python run.py
 ### 2. Start the Frontend Application
 In a separate terminal, boot up the React User Interface:
 ```bash
-cd frontend
+cd demo-app
 npm install
 npm run dev
 ```
