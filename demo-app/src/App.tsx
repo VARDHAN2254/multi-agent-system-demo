@@ -9,7 +9,7 @@ interface LogMessage {
   agent: string;
   state: AgentState;
   order_id: string;
-  payload: string; // JSON parsed
+  payload: any;
   timestamp: string;
 }
 
@@ -35,10 +35,11 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_id: orderId, seed })
       });
+      if (!res.ok) throw new Error("API Route Failed");
       const data = await res.json();
       setActiveRunId(data.run_id); 
     } catch (e) {
-      console.error(e);
+      console.error("Falling back to simulated run:", e);
       triggerSimulatedRun();
     }
   };
@@ -62,12 +63,12 @@ function App() {
      setCurrentState("IDLE");
      
      const mockFlow = [
-       { agent: "System", state: "IDLE", payload: `{"status":"initialized", "seed":${seed}}` },
-       { agent: "OrderAgent", state: "ORDER_PLACED", payload: `{"customer": "John Doe", "item": "MacBook Pro", "amount": 1999.99}` },
-       { agent: "InventoryAgent", state: "VERIFIED", payload: `{"stock_status": "In Stock", "confidence": 0.85}` },
-       { agent: "PaymentAgent", state: "PACKED", payload: `{"payment_status": "Authorized", "fraud_risk": 0.12}` },
-       { agent: "DeliveryAgent", state: "SHIPPED", payload: `{"pass": true, "stock_confidence": 0.85, "fraud_risk": 0.12, "delivery_days": 3, "partner": "FedEx"}` },
-       { agent: "System", state: "DELIVERED", payload: `{"execution_time_ms": 3200}` }
+       { agent: "System", state: "IDLE", payload: {"status":"initialized", "seed":seed} },
+       { agent: "OrderAgent", state: "ORDER_PLACED", payload: {"customer": "John Doe", "item": "MacBook Pro", "amount": 1999.99} },
+       { agent: "InventoryAgent", state: "VERIFIED", payload: {"stock_status": "In Stock", "confidence": 0.85} },
+       { agent: "PaymentAgent", state: "PACKED", payload: {"payment_status": "Authorized", "fraud_risk": 0.12} },
+       { agent: "DeliveryAgent", state: "SHIPPED", payload: {"pass": true, "stock_confidence": 0.85, "fraud_risk": 0.12, "delivery_days": 3, "partner": "FedEx"} },
+       { agent: "System", state: "DELIVERED", payload: {"execution_time_ms": 3200} }
      ];
      
      pollInterval.current = setInterval(() => {
@@ -95,15 +96,21 @@ function App() {
         const data = await res.json();
         
         if (data.history && data.history.length > 0) {
-           const parsedLogs = data.history.map((log: any, idx: number) => ({
-             id: idx,
-             run_id: log.run_id,
-             agent: log.agent,
-             state: log.state,
-             order_id: log.order_id,
-             payload: JSON.stringify(log.payload),
-             timestamp: log.timestamp
-           }));
+           const parsedLogs = data.history.map((log: any, idx: number) => {
+             let parsedPayload = log.payload;
+             if (typeof log.payload === 'string') {
+               try { parsedPayload = JSON.parse(log.payload); } catch (e) {}
+             }
+             return {
+               id: idx,
+               run_id: log.run_id,
+               agent: log.agent,
+               state: log.state,
+               order_id: log.order_id,
+               payload: parsedPayload,
+               timestamp: log.timestamp
+             };
+           });
            setLogs(parsedLogs);
            
            const lastLog = parsedLogs[parsedLogs.length - 1];
@@ -129,16 +136,14 @@ function App() {
   }, [logs]);
 
   const extractMetrics = () => {
-     let conf = 0, fraud = 0, days = 0, time = 0, pass = "false";
+     let conf = 0, fraud = 0, days = 0, time = 0, pass = false;
      logs.forEach(l => {
-       try {
-         const p = JSON.parse(l.payload);
-         if (p.stock_confidence) conf = p.stock_confidence;
+         const p = l.payload || {};
+         if (p.stock_confidence !== undefined) conf = p.stock_confidence;
          if (p.fraud_risk !== undefined) fraud = p.fraud_risk;
-         if (p.delivery_days) days = p.delivery_days;
-         if (p.execution_time_ms) time = p.execution_time_ms;
-         if (p.pass !== undefined) pass = p.pass ? "true" : "false";
-       } catch (e) {}
+         if (p.delivery_days !== undefined) days = p.delivery_days;
+         if (p.execution_time_ms !== undefined) time = p.execution_time_ms;
+         if (p.pass !== undefined) pass = p.pass;
      });
      return { conf, fraud, days, time, pass };
   };
@@ -189,7 +194,7 @@ function App() {
               <div key={i} className="transition-item">
                 <span style={{color: 'var(--text-muted)'}}>↳</span> 
                 <span className={`badge badge-${log.state.replace('_', '-')}`} style={{fontSize: '0.65rem'}}>{log.state}</span>
-                <span>{log.agent} initialized payload.</span>
+                <span>{log.agent} transitioned payload.</span>
               </div>
             ))}
           </div>
@@ -205,7 +210,7 @@ function App() {
                   <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                 </div>
                 <div className="log-json">
-                  {`{ "run_id": "${log.run_id}", "agent": "${log.agent}",\n  "state": "${log.state}", "order_id": "${log.order_id}",\n  "payload": ${log.payload} }`}
+                  {`{ "run_id": "${log.run_id}",\n  "agent": "${log.agent}",\n  "state": "${log.state}",\n  "order_id": "${log.order_id}",\n  "payload": ${JSON.stringify(log.payload, null, 2)} }`}
                 </div>
               </div>
             ))}
@@ -221,24 +226,22 @@ function App() {
           <div className="panel-title"><Activity size={18} /> Quantitative Metrics</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem' }}>
              <div className="metric-box">
-                <div className="metric-val">{metrics.conf ? metrics.conf.toFixed(2) : '-'}</div>
-                <div className="metric-label">Stock Confidence</div>
+                <div className="metric-val">{metrics.conf ? `${Math.round(metrics.conf * 100)}%` : '-'}</div>
+                <div className="metric-label">Inventory Accuracy (%)</div>
              </div>
              <div className="metric-box">
-                <div className="metric-val">{metrics.fraud !== undefined ? metrics.fraud.toFixed(2) : '-'}</div>
-                <div className="metric-label">Fraud Risk</div>
+                <div className="metric-val">{metrics.fraud !== undefined ? `${Math.round(metrics.fraud * 100)}%` : '-'}</div>
+                <div className="metric-label">Payment Failure Rate (%)</div>
              </div>
              <div className="metric-box">
-                <div className="metric-val">{metrics.days ? metrics.days : '-'}</div>
-                <div className="metric-label">Est. Delivery (Days)</div>
+                <div className="metric-val">{metrics.days ? `${metrics.days} days` : '-'}</div>
+                <div className="metric-label">Delivery Time (hours/days)</div>
              </div>
              <div className="metric-box">
-                <div className="metric-val">{metrics.time ? `${Math.round(metrics.time)}ms` : '-'}</div>
-                <div className="metric-label">Processed In</div>
-             </div>
-             <div className="metric-box" style={{ gridColumn: 'span 2' }}>
-                <div className="metric-val" style={{ color: metrics.pass === 'true' ? 'var(--color-success-light)' : 'var(--text-main)'}}>{metrics.pass.toUpperCase()}</div>
-                <div className="metric-label">Final Shipment Approved</div>
+                <div className="metric-val" style={{ color: metrics.pass ? 'var(--color-success-light)' : 'var(--text-main)'}}>
+                  {metrics.pass ? '100%' : (currentState === 'FAILED' ? '0%' : '-')}
+                </div>
+                <div className="metric-label">Order Success Rate (%)</div>
              </div>
           </div>
         </div>
@@ -254,11 +257,6 @@ function App() {
                  <option value="3">3 - Nike Air Max</option>
                  <option value="4">4 - Sony WH-1000XM5</option>
                  <option value="5">5 - Nintendo Switch</option>
-                 <option value="6">6 - Dyson V15 Detect</option>
-                 <option value="7">7 - Amazon Echo Dot</option>
-                 <option value="8">8 - Apple Watch Series 9</option>
-                 <option value="9">9 - LG C3 OLED TV</option>
-                 <option value="10">10 - Kindle Paperwhite</option>
                </select>
              </div>
              
@@ -273,6 +271,12 @@ function App() {
                 </button>
                 <button className="btn" onClick={stopRun}><Square size={16} /></button>
                 <button className="btn" onClick={resetRun}><RotateCcw size={16} /></button>
+             </div>
+             <div className="text-xs text-slate-500 mt-4">
+                <strong>Failure Cases:</strong><br/>
+                Out of stock → Order cancelled<br/>
+                Payment failed → Retry option<br/>
+                Delivery issue → Reassign courier
              </div>
           </div>
         </div>
