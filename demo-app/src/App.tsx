@@ -272,11 +272,20 @@ function App() {
                 <button className="btn" onClick={stopRun}><Square size={16} /></button>
                 <button className="btn" onClick={resetRun}><RotateCcw size={16} /></button>
              </div>
-             <div className="text-xs text-slate-500 mt-4">
-                <strong>Failure Cases:</strong><br/>
-                Out of stock → Order cancelled<br/>
-                Payment failed → Retry option<br/>
-                Delivery issue → Reassign courier
+
+             <div className="text-xs mt-4" style={{ padding: '0.75rem', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                <strong className="text-slate-300">Run Health / Failure Cases (Live Tracking):</strong>
+                <ul className="mt-2 space-y-1">
+                   <li style={{ color: (currentState === 'FAILED' && metrics.conf && metrics.conf <= 0.6) ? 'var(--color-danger-light)' : 'var(--text-muted)' }}>
+                     {currentState === 'FAILED' && metrics.conf && metrics.conf <= 0.6 ? '🔴 Out of stock → Order cancelled' : '⚪ Out of stock → Order cancelled (Not triggered)'}
+                   </li>
+                   <li style={{ color: logs.some(l => (l.payload?.attempt > 1 || (typeof l.payload === "string" && l.payload.includes('"attempt": 2')))) ? 'var(--color-summarize-light)' : 'var(--text-muted)' }}>
+                     {logs.some(l => (l.payload?.attempt > 1 || (typeof l.payload === "string" && l.payload.includes('"attempt": 2')))) ? '🟠 Payment failed → Retry option executed' : '⚪ Payment failed → Retry option (Not triggered)'}
+                   </li>
+                   <li style={{ color: (metrics.days && metrics.pass === false && currentState === 'FAILED' && metrics.conf > 0.6) ? 'var(--color-danger-light)' : 'var(--text-muted)' }}>
+                     {(metrics.days && metrics.pass === false && currentState === 'FAILED' && metrics.conf > 0.6) ? '🔴 Delivery issue → Max Retries Reached' : '⚪ Delivery issue → Reassign courier (Not triggered)'}
+                   </li>
+                </ul>
              </div>
           </div>
         </div>
