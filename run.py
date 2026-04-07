@@ -7,7 +7,7 @@ from typing import Optional
 
 from backend.core.orchestrator import PipelineOrchestrator
 
-app = FastAPI(title="News Summarization Multi-Agent API")
+app = FastAPI(title="E-Commerce Order Processing Multi-Agent API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,15 +20,15 @@ app.add_middleware(
 orchestrator = PipelineOrchestrator()
 
 class RunRequest(BaseModel):
-    article_id: str
+    order_id: str
     seed: int = 42
 
 @app.post("/api/run")
 async def trigger_run(request: RunRequest, background_tasks: BackgroundTasks):
     # In a full app, this would use websockets for live updates
     # For now, it immediately starts the run process on the backend
-    background_tasks.add_task(orchestrator.run_pipeline, request.article_id, request.seed)
-    return {"status": "started", "article_id": request.article_id, "seed": request.seed}
+    background_tasks.add_task(orchestrator.run_pipeline, request.order_id, request.seed)
+    return {"status": "started", "order_id": request.order_id, "seed": request.seed}
 
 @app.get("/api/logs/{run_id}")
 async def get_logs(run_id: str):

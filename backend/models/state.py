@@ -5,32 +5,31 @@ from datetime import datetime
 
 class AgentState(str, Enum):
     IDLE = "IDLE"
-    FETCHING = "FETCHING"
-    ANALYZING = "ANALYZING"
-    SUMMARIZING = "SUMMARIZING"
-    EVALUATING = "EVALUATING"
-    COMPLETE = "COMPLETE"
+    ORDER_PLACED = "ORDER_PLACED"
+    VERIFIED = "VERIFIED"
+    PACKED = "PACKED"
+    SHIPPED = "SHIPPED"
+    DELIVERED = "DELIVERED"
     FAILED = "FAILED"
 
 class MessageProtocol(BaseModel):
     run_id: str
     agent: str
     state: AgentState
-    article_id: str
+    order_id: str
     payload: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
-class ArticleData(BaseModel):
-    article_id: str
-    title: str = ""
-    raw_text: str = ""
-    source: str = ""
-    timestamp: Optional[datetime] = None
-    category: str = ""
-    sentiment: float = 0.0
-    key_entities: list[str] = []
-    complexity_score: float = 0.0
-    summary_headline: str = ""
-    summary_abstract: str = ""
-    summary_bullets: list[str] = []
+class OrderData(BaseModel):
+    order_id: str
+    customer_name: str = ""
+    item_name: str = ""
+    quantity: int = 0
+    total_amount: float = 0.0
+    stock_status: str = ""
+    stock_confidence: float = 0.0
+    payment_status: str = ""
+    fraud_risk: float = 0.0
+    shipping_partner: str = ""
+    delivery_time_estimate: int = 0
     metrics: Dict[str, float] = {}

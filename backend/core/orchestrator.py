@@ -4,81 +4,84 @@ import json
 from datetime import datetime
 from backend.models.state import MessageProtocol, AgentState
 from backend.core.logger import RunLogger
-from backend.agents.pipeline_agents import FetcherAgent, AnalyzerAgent, SummarizerAgent, EvaluatorAgent
+from backend.agents.pipeline_agents import OrderAgent, InventoryAgent, PaymentAgent, DeliveryAgent
 
 class PipelineOrchestrator:
     def __init__(self, db_path="runs.db"):
         self.logger = RunLogger(db_path)
-        self.fetcher = FetcherAgent()
-        self.analyzer = AnalyzerAgent()
-        self.summarizer = SummarizerAgent()
-        self.evaluator = EvaluatorAgent()
+        self.order_agent = OrderAgent()
+        self.inventory_agent = InventoryAgent()
+        self.payment_agent = PaymentAgent()
+        self.delivery_agent = DeliveryAgent()
 
-    def _log_state(self, run_id: str, agent_name: str, state: AgentState, article_id: str, payload_data: dict):
+    def _log_state(self, run_id: str, agent_name: str, state: AgentState, order_id: str, payload_data: dict):
         msg = MessageProtocol(
             run_id=run_id,
             agent=agent_name,
             state=state,
-            article_id=article_id,
+            order_id=order_id,
             payload=payload_data,
             timestamp=datetime.utcnow()
         )
         self.logger.log_transition(msg)
         print(f"[{msg.timestamp.isoformat()}] [{state.name}] {agent_name}: {json.dumps(payload_data)[:150]}...")
 
-    def run_pipeline(self, article_id: str, seed: int = 42):
+    def run_pipeline(self, order_id: str, seed: int = 42):
         run_id = str(uuid.uuid4())
-        print(f"\n--- Starting Pipeline Run {run_id} for Article {article_id} (Seed: {seed}) ---")
+        print(f"\n--- Starting Order Run {run_id} for Order {order_id} (Seed: {seed}) ---")
         
-        self._log_state(run_id, "System", AgentState.IDLE, article_id, {"status": "initialized", "seed": seed})
+        self._log_state(run_id, "System", AgentState.IDLE, order_id, {"status": "initialized", "seed": seed})
         
         try:
-            # 1. Fetching
-            self._log_state(run_id, "Fetcher", AgentState.FETCHING, article_id, {})
             start_time = time.time()
-            article = self.fetcher.process(article_id, seed)
-            self._log_state(run_id, "Fetcher", AgentState.FETCHING, article_id, {"title": article.title, "length": len(article.raw_text)})
+
+            # 1. Order Placed
+            self._log_state(run_id, "OrderAgent", AgentState.ORDER_PLACED, order_id, {})
+            order = self.order_agent.process(order_id, seed)
+            self._log_state(run_id, "OrderAgent", AgentState.ORDER_PLACED, order_id, {"customer": order.customer_name, "item": order.item_name, "amount": order.total_amount})
             
-            # 2. Analyzing
-            self._log_state(run_id, "Analyzer", AgentState.ANALYZING, article_id, {})
-            article = self.analyzer.process(article, seed)
-            self._log_state(run_id, "Analyzer", AgentState.ANALYZING, article_id, {"category": article.category, "sentiment": article.sentiment, "entities": article.key_entities})
+            # 2. Verified (Inventory)
+            self._log_state(run_id, "InventoryAgent", AgentState.VERIFIED, order_id, {})
+            order = self.inventory_agent.process(order, seed)
+            self._log_state(run_id, "InventoryAgent", AgentState.VERIFIED, order_id, {"stock_status": order.stock_status, "confidence": order.stock_confidence})
             
-            # Retry mechanism
+            # Retry mechanism for Payment & Delivery Check
             max_retries = 2
             attempt = 1
             passed = False
             
             while attempt <= max_retries and not passed:
-                print(f"--- Summarization Attempt {attempt} ---")
-                # 3. Summarizing
-                self._log_state(run_id, "Summarizer", AgentState.SUMMARIZING, article_id, {"attempt": attempt})
-                article = self.summarizer.process(article, seed, attempt)
-                self._log_state(run_id, "Summarizer", AgentState.SUMMARIZING, article_id, {"abstract": article.summary_abstract})
+                print(f"--- Processing Attempt {attempt} ---")
                 
-                # 4. Evaluating
-                self._log_state(run_id, "Evaluator", AgentState.EVALUATING, article_id, {"attempt": attempt})
-                passed, comp_r, rel_s, coh_s = self.evaluator.process(article, seed, attempt)
-                eval_payload = {"pass": passed, "compression": comp_r, "relevance": rel_s, "coherence": coh_s}
-                self._log_state(run_id, "Evaluator", AgentState.EVALUATING, article_id, eval_payload)
+                # 3. Packed (Payment Verification)
+                self._log_state(run_id, "PaymentAgent", AgentState.PACKED, order_id, {"attempt": attempt})
+                order = self.payment_agent.process(order, seed, attempt)
+                self._log_state(run_id, "PaymentAgent", AgentState.PACKED, order_id, {"payment_status": order.payment_status, "fraud_risk": order.fraud_risk})
+                
+                # 4. Shipped (Delivery Agent Assigment)
+                self._log_state(run_id, "DeliveryAgent", AgentState.SHIPPED, order_id, {"attempt": attempt})
+                passed, st_conf, f_risk, d_time = self.delivery_agent.process(order, seed, attempt)
+                eval_payload = {"pass": passed, "stock_confidence": st_conf, "fraud_risk": f_risk, "delivery_days": d_time, "partner": order.shipping_partner}
+                self._log_state(run_id, "DeliveryAgent", AgentState.SHIPPED, order_id, eval_payload)
                 
                 if not passed:
                     attempt += 1
 
             execution_time = (time.time() - start_time) * 1000
-            article.metrics["processing_time_ms"] = execution_time
+            order.metrics["processing_time_ms"] = execution_time
             
             if passed:
-                self._log_state(run_id, "System", AgentState.COMPLETE, article_id, {"execution_time_ms": execution_time})
-                print(f"--- Run {run_id} COMPLETE ---")
+                # 5. Delivered
+                self._log_state(run_id, "System", AgentState.DELIVERED, order_id, {"execution_time_ms": execution_time})
+                print(f"--- Run {run_id} DELIVERED ---")
             else:
-                self._log_state(run_id, "System", AgentState.FAILED, article_id, {"reason": "Max retries reached without passing evaluation."})
+                self._log_state(run_id, "System", AgentState.FAILED, order_id, {"reason": "Max retries reached due to high fraud risk or stock shortage."})
                 print(f"--- Run {run_id} FAILED ---")
                 
             return run_id
             
         except Exception as e:
-            self._log_state(run_id, "System", AgentState.FAILED, article_id, {"error": str(e)})
+            self._log_state(run_id, "System", AgentState.FAILED, order_id, {"error": str(e)})
             print(f"--- Run {run_id} ERRORED ---")
             raise e
 

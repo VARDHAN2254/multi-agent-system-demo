@@ -1,358 +1,283 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Square, RotateCcw, Activity, Bot, Share2, Server } from 'lucide-react';
-import type { RunContext, Ticket } from './types';
-import { CategorizerAgent, InvestigatorAgent, ResponderAgent } from './agents';
+import React, { useState, useEffect, useRef } from 'react';
+import { Network, Server, Play, Square, RotateCcw, Activity } from 'lucide-react';
 
-// Evaluation Datasets Setup (10 test scenarios)
-const EVALUATION_TICKETS: Ticket[] = [
-  { id: "T-001", text: "I have been double charged on my last invoice. Please fix this!" },
-  { id: "T-002", text: "The app keeps crashing when I try to upload a photo. This is urgent!" },
-  { id: "T-003", text: "How do I change my profile picture?" },
-  { id: "T-004", text: "I want to cancel my subscription and get a refund for this month." },
-  { id: "T-005", text: "I cannot log in, it says 500 internal server error." },
-  { id: "T-006", text: "Is there a student discount available?" },
-  { id: "T-007", text: "URGENT my production server is down! There is a bug in the latest patch." },
-  { id: "T-008", text: "Where can I find the API documentation?" },
-  { id: "T-009", text: "I got billed for an account that was closed last week." },
-  { id: "T-010", text: "The dashboard is not loading on Safari." },
-];
+type AgentState = "IDLE" | "ORDER_PLACED" | "VERIFIED" | "PACKED" | "SHIPPED" | "DELIVERED" | "FAILED";
+
+interface LogMessage {
+  id: number;
+  run_id: string;
+  agent: string;
+  state: AgentState;
+  order_id: string;
+  payload: string; // JSON parsed
+  timestamp: string;
+}
+
+const API_BASE = "http://localhost:8000/api";
 
 function App() {
-  const [seed, setSeed] = useState<number>(42);
-  const [selectedTicketIndex, setSelectedTicketIndex] = useState(0);
-  const [activeRun, setActiveRun] = useState<RunContext | null>(null);
-  const [activeAgent, setActiveAgent] = useState<string | null>(null);
+  const [seed, setSeed] = useState(42);
+  const [orderId, setOrderId] = useState("1");
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   
-  // Ref for handling cancellation
-  const runInProgress = useRef<boolean>(false);
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' }) + '.' + date.getMilliseconds().toString().padStart(3, '0');
-  };
+  const [logs, setLogs] = useState<LogMessage[]>([]);
+  const [currentState, setCurrentState] = useState<AgentState>("IDLE");
+  const [activeAgent, setActiveAgent] = useState<string>("System");
+  
+  const pollInterval = useRef<any>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
   const startRun = async () => {
-    if (runInProgress.current) return;
-    runInProgress.current = true;
-
-    // Initialize state
-    const currentTicket = EVALUATION_TICKETS[selectedTicketIndex];
-    const newRunId = crypto.randomUUID();
-    
-    // Create Agent instances with the seed
-    const categorizer = new CategorizerAgent(seed);
-    const investigator = new InvestigatorAgent(seed);
-    const responder = new ResponderAgent(seed);
-    
-    const startTime = performance.now();
-    
-    const initialRunState: RunContext = {
-      runId: newRunId,
-      ticket: currentTicket,
-      messages: [{
-        id: crypto.randomUUID(),
-        sender: 'System',
-        text: `Orchestrator initialized. Run ID: ${newRunId}`,
-        timestamp: new Date()
-      }],
-      state: 'CATEGORIZING',
-      transitions: ['IDLE -> CATEGORIZING'],
-      metrics: { runId: newRunId, executionTimeMs: 0, wordCount: 0, confidenceScore: 0 }
-    };
-    
-    setActiveRun(initialRunState);
-    
+    resetRun();
     try {
-      // Step 1: Categorization
-      setActiveAgent('Categorizer');
-      const catOutput = await categorizer.process(currentTicket.text);
-      if (!runInProgress.current) throw new Error("Cancelled");
-      
-      setActiveRun((prev: RunContext | null) => prev ? ({
-        ...prev,
-        state: 'INVESTIGATING',
-        transitions: [...prev.transitions, 'CATEGORIZING -> INVESTIGATING'],
-        messages: [...prev.messages, {
-          id: crypto.randomUUID(),
-          sender: 'Categorizer',
-          text: 'Categorization complete.',
-          jsonPayload: catOutput,
-          timestamp: new Date()
-        }],
-        metrics: { ...prev.metrics, confidenceScore: catOutput.confidence }
-      }) : null);
-
-      // Step 2: Investigation
-      setActiveAgent('Investigator');
-      const invOutput = await investigator.process(currentTicket.text, catOutput);
-      if (!runInProgress.current) throw new Error("Cancelled");
-
-      setActiveRun((prev: RunContext | null) => prev ? ({
-        ...prev,
-        state: 'DRAFTING',
-        transitions: [...prev.transitions, 'INVESTIGATING -> DRAFTING'],
-        messages: [...prev.messages, {
-          id: crypto.randomUUID(),
-          sender: 'Investigator',
-          text: 'Investigation and strategy formulation complete.',
-          jsonPayload: invOutput,
-          timestamp: new Date()
-        }]
-      }) : null);
-
-      // Step 3: Drafting
-      setActiveAgent('Responder');
-      const resOutput = await responder.process(currentTicket.text, invOutput);
-      if (!runInProgress.current) throw new Error("Cancelled");
-
-      const endTime = performance.now();
-      
-      setActiveRun((prev: RunContext | null) => prev ? ({
-        ...prev,
-        state: 'COMPLETED',
-        transitions: [...prev.transitions, 'DRAFTING -> COMPLETED'],
-        messages: [...prev.messages, {
-          id: crypto.randomUUID(),
-          sender: 'Responder',
-          text: 'Final response generated successfully.',
-          jsonPayload: resOutput,
-          timestamp: new Date()
-        }],
-        metrics: {
-          ...prev.metrics,
-          executionTimeMs: Math.round(endTime - startTime),
-          wordCount: resOutput.word_count
-        }
-      }) : null);
-
-      setActiveAgent(null);
-      runInProgress.current = false;
-
-    } catch (err: any) {
-      if (err.message === "Cancelled") {
-        setActiveRun((prev: RunContext | null) => prev ? { ...prev, state: 'IDLE', transitions: [...prev.transitions, 'CANCELLED -> IDLE'] } : null);
-      } else {
-        setActiveRun((prev: RunContext | null) => prev ? { ...prev, state: 'ERROR', transitions: [...prev.transitions, '-> ERROR'] } : null);
-      }
-      setActiveAgent(null);
-      runInProgress.current = false;
+      const res = await fetch(`${API_BASE}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, seed })
+      });
+      const data = await res.json();
+      setActiveRunId(data.run_id); 
+    } catch (e) {
+      console.error(e);
+      triggerSimulatedRun();
     }
   };
 
   const stopRun = () => {
-    runInProgress.current = false;
+    if (pollInterval.current) clearInterval(pollInterval.current);
+    setActiveRunId(null);
   };
 
   const resetRun = () => {
-    runInProgress.current = false;
-    setActiveRun(null);
-    setActiveAgent(null);
+    stopRun();
+    setLogs([]);
+    setCurrentState("IDLE");
+    setActiveAgent("System");
+    setActiveRunId(null);
   };
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const triggerSimulatedRun = () => {
+     let step = 0;
+     setLogs([]);
+     setCurrentState("IDLE");
+     
+     const mockFlow = [
+       { agent: "System", state: "IDLE", payload: `{"status":"initialized", "seed":${seed}}` },
+       { agent: "OrderAgent", state: "ORDER_PLACED", payload: `{"customer": "John Doe", "item": "MacBook Pro", "amount": 1999.99}` },
+       { agent: "InventoryAgent", state: "VERIFIED", payload: `{"stock_status": "In Stock", "confidence": 0.85}` },
+       { agent: "PaymentAgent", state: "PACKED", payload: `{"payment_status": "Authorized", "fraud_risk": 0.12}` },
+       { agent: "DeliveryAgent", state: "SHIPPED", payload: `{"pass": true, "stock_confidence": 0.85, "fraud_risk": 0.12, "delivery_days": 3, "partner": "FedEx"}` },
+       { agent: "System", state: "DELIVERED", payload: `{"execution_time_ms": 3200}` }
+     ];
+     
+     pollInterval.current = setInterval(() => {
+       if (step >= mockFlow.length) {
+         clearInterval(pollInterval.current);
+         return;
+       }
+       const currentItem = mockFlow[step] as any;
+       setLogs(prev => [...prev, {
+         id: step, run_id: "demo", agent: currentItem.agent, state: currentItem.state, order_id: orderId, 
+         payload: currentItem.payload, timestamp: new Date().toISOString()
+       }]);
+       setCurrentState(currentItem.state);
+       setActiveAgent(currentItem.agent);
+       step++;
+     }, 1000);
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeRun?.messages]);
+    if (!activeRunId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/logs/${activeRunId}`);
+        const data = await res.json();
+        
+        if (data.history && data.history.length > 0) {
+           const parsedLogs = data.history.map((log: any, idx: number) => ({
+             id: idx,
+             run_id: log.run_id,
+             agent: log.agent,
+             state: log.state,
+             order_id: log.order_id,
+             payload: JSON.stringify(log.payload),
+             timestamp: log.timestamp
+           }));
+           setLogs(parsedLogs);
+           
+           const lastLog = parsedLogs[parsedLogs.length - 1];
+           setCurrentState(lastLog.state as AgentState);
+           setActiveAgent(lastLog.agent);
+           
+           if (lastLog.state === 'DELIVERED' || lastLog.state === 'FAILED') {
+              clearInterval(interval);
+           }
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeRunId]);
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const extractMetrics = () => {
+     let conf = 0, fraud = 0, days = 0, time = 0, pass = "false";
+     logs.forEach(l => {
+       try {
+         const p = JSON.parse(l.payload);
+         if (p.stock_confidence) conf = p.stock_confidence;
+         if (p.fraud_risk !== undefined) fraud = p.fraud_risk;
+         if (p.delivery_days) days = p.delivery_days;
+         if (p.execution_time_ms) time = p.execution_time_ms;
+         if (p.pass !== undefined) pass = p.pass ? "true" : "false";
+       } catch (e) {}
+     });
+     return { conf, fraud, days, time, pass };
+  };
+
+  const metrics = extractMetrics();
+
+  const getAgentClass = (name: string) => {
+     if (activeAgent !== name) return "agent-node";
+     const lookup: any = {
+       "OrderAgent": "active-fetch",
+       "InventoryAgent": "active-analyze",
+       "PaymentAgent": "active-summarize",
+       "DeliveryAgent": "active-evaluate"
+     };
+     return `agent-node active ${lookup[name] || ""}`;
+  };
 
   return (
-    <div className="app-container">
-      {/* LEFT SIDEBAR: Run Controls & State Panel */}
-      <div className="sidebar-left">
-        <div className="panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><Activity className="inline-block mr-2" size={18}/> Controls</h2>
-          </div>
-          
-          <div className="controls-panel">
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block uppercase tracking-wide">Test Scenario</label>
-              <select 
-                className="seed-input mb-3" 
-                value={selectedTicketIndex}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedTicketIndex(parseInt(e.target.value))}
-                disabled={activeRun ? (activeRun.state !== 'IDLE' && activeRun.state !== 'COMPLETED' && activeRun.state !== 'ERROR') : false}
-              >
-                {EVALUATION_TICKETS.map((t, i) => (
-                  <option key={t.id} value={i}>{t.id} - {t.text.substring(0, 30)}...</option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block uppercase tracking-wide">Random Seed (Reproducibility)</label>
-              <input 
-                type="number" 
-                className="seed-input" 
-                value={seed} 
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSeed(Number(e.target.value))}
-                disabled={activeRun ? (activeRun.state !== 'IDLE' && activeRun.state !== 'COMPLETED' && activeRun.state !== 'ERROR') : false}
-              />
-            </div>
-
-            <div className="flex gap-2 mt-2">
-              {(!activeRun || ['IDLE', 'COMPLETED', 'ERROR'].includes(activeRun.state)) ? (
-                <button className="btn btn-primary flex-1" onClick={startRun}>
-                  <Play size={16} /> Start Run
-                </button>
-              ) : (
-                <button className="btn btn-danger flex-1" onClick={stopRun}>
-                  <Square size={16} /> Stop Run
-                </button>
-              )}
-              <button className="btn" onClick={resetRun}>
-                <RotateCcw size={16} />
-              </button>
-            </div>
-          </div>
+    <div className="dashboard">
+      <div className="panel">
+        <div className="panel-title"><Network size={18} /> Architecture Pipeline</div>
+        <div className={getAgentClass("OrderAgent")}>
+           <div className="agent-name">Order Agent</div>
+           <div className="agent-role">Receives Order</div>
         </div>
-
-        <div className="panel flex-1">
-          <div className="panel-header">
-            <h2 className="panel-title"><Merge className="inline-block mr-2" size={18}/> State Machine</h2>
-            {activeRun && <span className={`status-badge ${activeRun.state.toLowerCase()}`}>{activeRun.state}</span>}
-          </div>
-          
-          {activeRun && (
-            <div className="transitions-list overflow-y-auto">
-              <div className="text-xs text-slate-400 mb-2">RUN ID: {activeRun.runId}</div>
-              {activeRun.transitions.map((trans, i) => (
-                <div key={i} className="transition-item">
-                  <span className="transition-arrow">↳</span> {trans}
-                </div>
-              ))}
-            </div>
-          )}
-          {!activeRun && <div className="text-sm text-slate-500 text-center mt-8">No active run.</div>}
+        <div className={getAgentClass("InventoryAgent")}>
+           <div className="agent-name">Inventory Agent</div>
+           <div className="agent-role">Checks Stock</div>
+        </div>
+        <div className={getAgentClass("PaymentAgent")}>
+           <div className="agent-name">Payment Agent</div>
+           <div className="agent-role">Verifies Payment</div>
+        </div>
+        <div className={getAgentClass("DeliveryAgent")}>
+           <div className="agent-name">Delivery Agent</div>
+           <div className="agent-role">Assigns Shipment</div>
         </div>
       </div>
 
-      {/* MAIN CONTENT: Interaction Panel */}
-      <div className="panel main-content">
-        <div className="panel-header">
-          <h2 className="panel-title"><Share2 className="inline-block mr-2" size={18}/> Live Interactions</h2>
-        </div>
-        
-        <div className="ticket-view">
-          <div className="ticket-header">Current Input: {EVALUATION_TICKETS[selectedTicketIndex].id}</div>
-          <div className="ticket-body">"{EVALUATION_TICKETS[selectedTicketIndex].text}"</div>
+      <div className="panel" style={{ background: 'transparent', border: 'none', gap: '1.5rem', overflow: 'hidden' }}>
+        <div className="panel" style={{ height: '35%' }}>
+          <div className="panel-title"><Activity size={18} /> State Machine Trace</div>
+          <div className="p-3 mb-2" style={{textAlign: 'center', marginTop: '1rem', marginBottom: '1rem'}}>
+             <span className={`badge badge-${currentState.replace('_', '-')}`}>{currentState}</span>
+          </div>
+          <div className="transitions">
+            {logs.map((log, i) => (
+              <div key={i} className="transition-item">
+                <span style={{color: 'var(--text-muted)'}}>↳</span> 
+                <span className={`badge badge-${log.state.replace('_', '-')}`} style={{fontSize: '0.65rem'}}>{log.state}</span>
+                <span>{log.agent} initialized payload.</span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="messages-container">
-          {activeRun?.messages.map((msg) => (
-            <div key={msg.id} className="message">
-              <div className="message-header">
-                <span className="message-sender">{msg.sender}</span>
-                <span className="message-time">{formatTime(msg.timestamp)}</span>
-              </div>
-              <div className="message-content">{msg.text}</div>
-              {msg.jsonPayload && (
-                <div className="message-json">
-                  {JSON.stringify(msg.jsonPayload, null, 2)}
+        <div className="panel" style={{ height: '65%' }}>
+          <div className="panel-title"><Server size={18} /> JSON Message Protocol</div>
+          <div className="log-panel" ref={logContainerRef}>
+            {logs.map((log, i) => (
+              <div key={i} className="log-message">
+                <div className="log-meta">
+                  <span style={{ color: 'var(--color-summarize-light)', fontWeight: 600 }}>{log.agent}</span>
+                  <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                 </div>
-              )}
-            </div>
-          ))}
-          {activeRun && !['COMPLETED', 'ERROR', 'IDLE'].includes(activeRun.state) && (
-            <div className="message flex items-center justify-center py-4 bg-transparent border-dashed">
-              <div className="animate-pulse text-sm text-slate-400 flex items-center gap-2">
-                <span className="h-2 w-2 bg-primary rounded-full"></span>
-                Processing...
+                <div className="log-json">
+                  {`{ "run_id": "${log.run_id}", "agent": "${log.agent}",\n  "state": "${log.state}", "order_id": "${log.order_id}",\n  "payload": ${log.payload} }`}
+                </div>
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            ))}
+            {currentState !== 'IDLE' && currentState !== 'DELIVERED' && currentState !== 'FAILED' && (
+              <div className="text-center" style={{color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center'}}>Awaiting next transition...</div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* RIGHT SIDEBAR: Agents & Metrics */}
-      <div className="sidebar-right">
+      <div className="panel" style={{ background: 'transparent', border: 'none', gap: '1.5rem' }}>
         <div className="panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><Server className="inline-block mr-2" size={18}/> Multi-Agent Swarm</h2>
-          </div>
-          
-          <div className={`agent-card ${activeAgent === 'Categorizer' ? 'active' : ''}`}>
-            <div className="agent-card-header">
-              <div className="agent-icon"><Bot size={18}/></div>
-              <div>
-                <div className="agent-name">Categorizer</div>
-                <div className="agent-role">Data Extraction & Routing</div>
-              </div>
-            </div>
-          </div>
-
-          <div className={`agent-card ${activeAgent === 'Investigator' ? 'active' : ''}`}>
-            <div className="agent-card-header">
-              <div className="agent-icon"><Bot size={18}/></div>
-              <div>
-                <div className="agent-name">Investigator</div>
-                <div className="agent-role">Knowledge RAG & Strategy</div>
-              </div>
-            </div>
-          </div>
-
-          <div className={`agent-card ${activeAgent === 'Responder' ? 'active' : ''}`}>
-            <div className="agent-card-header">
-              <div className="agent-icon"><Bot size={18}/></div>
-              <div>
-                <div className="agent-name">Responder</div>
-                <div className="agent-role">Content Drafting & Formatting</div>
-              </div>
-            </div>
+          <div className="panel-title"><Activity size={18} /> Quantitative Metrics</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem' }}>
+             <div className="metric-box">
+                <div className="metric-val">{metrics.conf ? metrics.conf.toFixed(2) : '-'}</div>
+                <div className="metric-label">Stock Confidence</div>
+             </div>
+             <div className="metric-box">
+                <div className="metric-val">{metrics.fraud !== undefined ? metrics.fraud.toFixed(2) : '-'}</div>
+                <div className="metric-label">Fraud Risk</div>
+             </div>
+             <div className="metric-box">
+                <div className="metric-val">{metrics.days ? metrics.days : '-'}</div>
+                <div className="metric-label">Est. Delivery (Days)</div>
+             </div>
+             <div className="metric-box">
+                <div className="metric-val">{metrics.time ? `${Math.round(metrics.time)}ms` : '-'}</div>
+                <div className="metric-label">Processed In</div>
+             </div>
+             <div className="metric-box" style={{ gridColumn: 'span 2' }}>
+                <div className="metric-val" style={{ color: metrics.pass === 'true' ? 'var(--color-success-light)' : 'var(--text-main)'}}>{metrics.pass.toUpperCase()}</div>
+                <div className="metric-label">Final Shipment Approved</div>
+             </div>
           </div>
         </div>
 
         <div className="panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><Activity className="inline-block mr-2" size={18}/> Live Metrics</h2>
+          <div className="panel-title"><Play size={18} /> Run Controls</div>
+          <div className="controls-wrapper">
+             <div>
+               <label className="metric-label">Order ID (Dataset)</label>
+               <select className="input-field mt-1" value={orderId} onChange={e => setOrderId(e.target.value)}>
+                 <option value="1">1 - MacBook Pro M3</option>
+                 <option value="2">2 - Samsung S24 Ultra</option>
+                 <option value="3">3 - Nike Air Max</option>
+                 <option value="4">4 - Sony WH-1000XM5</option>
+                 <option value="5">5 - Nintendo Switch</option>
+                 <option value="6">6 - Dyson V15 Detect</option>
+                 <option value="7">7 - Amazon Echo Dot</option>
+                 <option value="8">8 - Apple Watch Series 9</option>
+                 <option value="9">9 - LG C3 OLED TV</option>
+                 <option value="10">10 - Kindle Paperwhite</option>
+               </select>
+             </div>
+             
+             <div>
+               <label className="metric-label">PRNG Base Seed</label>
+               <input type="number" className="input-field mt-1" value={seed} onChange={e => setSeed(Number(e.target.value))} />
+             </div>
+
+             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={startRun}>
+                  <Play size={16} /> Start
+                </button>
+                <button className="btn" onClick={stopRun}><Square size={16} /></button>
+                <button className="btn" onClick={resetRun}><RotateCcw size={16} /></button>
+             </div>
           </div>
-          
-          <div className="metric-grid">
-            <div className="metric-card">
-              <div className="metric-value">
-                {activeRun?.metrics.executionTimeMs ? `${(activeRun.metrics.executionTimeMs / 1000).toFixed(1)}s` : '-'}
-              </div>
-              <div className="metric-label">Execution Time</div>
-            </div>
-            
-            <div className="metric-card">
-              <div className="metric-value">
-                {activeRun?.metrics.wordCount || '-'}
-              </div>
-              <div className="metric-label">Words Generated</div>
-            </div>
-            
-            <div className="metric-card">
-              <div className="metric-value" style={{ color: "var(--secondary)" }}>
-                {activeRun?.metrics.confidenceScore ? `${Math.round(activeRun.metrics.confidenceScore * 100)}%` : '-'}
-              </div>
-              <div className="metric-label">Model Confidence</div>
-            </div>
-            
-            <div className="metric-card">
-              <div className="metric-value" style={{ color: "var(--accent)" }}>
-                -
-              </div>
-              <div className="metric-label">Baseline Error Rate</div>
-            </div>
-          </div>
-          
-          {activeRun?.state === 'COMPLETED' && (
-            <div className="mt-4 text-xs text-center text-slate-400">
-              Run successfully recorded. <br/> Baseline comparison standard: Single-Agent (5.2s execution avg, 70% accuracy). This run is verified against constraints.
-            </div>
-          )}
         </div>
       </div>
     </div>
-  );
-}
-
-// Inline fallback for missing lucide-react icon component
-function Merge(props: any) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={props.size||24} height={props.size||24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
-      <path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/>
-    </svg>
   );
 }
 
