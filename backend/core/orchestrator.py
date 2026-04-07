@@ -53,6 +53,7 @@ class PipelineOrchestrator:
                     "stock_status": order.stock_status,
                     "confidence": order.stock_confidence,
                     "selected_sku": order.selected_sku,
+                    "inventory_context": order.inventory_context,
                     "inventory_catalog": order.inventory_catalog,
                 },
             )

@@ -53,8 +53,22 @@ interface InventoryCatalogItem {
   category: string;
   image: string;
   price: number;
+  discount_percent?: number;
+  discounted_price?: number;
+  delivery_charge?: number;
+  estimated_delivery_days?: number;
+  season?: string;
+  day_name?: string;
   stock_units?: number;
   stock_status?: string;
+}
+
+interface InventoryContext {
+  season: string;
+  day_name: string;
+  day_type: string;
+  generated_items: number;
+  category_breakdown: Record<string, number>;
 }
 
 interface HandoffTransition {
@@ -102,78 +116,157 @@ const STAGES: StageConfig[] = [
 
 const TERMINAL_STATES = new Set<AgentState>(['DELIVERED', 'FAILED']);
 
-const FALLBACK_INVENTORY_CATALOG: InventoryCatalogItem[] = [
+const INVENTORY_BLUEPRINTS = [
   {
-    sku: 'NVK-1001',
-    name: 'MacBook Pro M3',
+    slug: 'LAP',
     category: 'Laptops',
-    image: 'https://picsum.photos/seed/novakart-macbook/720/480',
-    price: 1999.99,
+    count: 220,
+    brands: ['AstraBook', 'NovaBook', 'ZenBook', 'TitanBook', 'OrbitBook', 'PulseBook', 'VertexBook', 'HaloBook'],
+    lines: ['Pro', 'Air', 'Max', 'Ultra', 'Prime', 'Edge'],
+    priceMin: 700,
+    priceMax: 3200,
+    baseDiscount: 14,
+    baseDelivery: 69,
+    baseDeliveryDays: 3,
   },
   {
-    sku: 'NVK-1002',
-    name: 'Samsung S24 Ultra',
+    slug: 'MOB',
     category: 'Mobiles',
-    image: 'https://picsum.photos/seed/novakart-s24/720/480',
-    price: 1199.99,
+    count: 220,
+    brands: ['Vertex', 'Nova', 'Astra', 'Zen', 'Pulse', 'Halo', 'Orbit', 'Titan'],
+    lines: ['One', 'Pro', 'Max', 'Ultra', 'Lite', 'Edge'],
+    priceMin: 220,
+    priceMax: 1800,
+    baseDiscount: 12,
+    baseDelivery: 39,
+    baseDeliveryDays: 2,
   },
   {
-    sku: 'NVK-1003',
-    name: 'Nike Air Max',
+    slug: 'FTW',
     category: 'Footwear',
-    image: 'https://picsum.photos/seed/novakart-nike/720/480',
-    price: 129.99,
-  },
-  {
-    sku: 'NVK-1004',
-    name: 'Sony WH-1000XM5',
-    category: 'Audio',
-    image: 'https://picsum.photos/seed/novakart-sony/720/480',
-    price: 348,
-  },
-  {
-    sku: 'NVK-1005',
-    name: 'Nintendo Switch',
-    category: 'Gaming',
-    image: 'https://picsum.photos/seed/novakart-switch/720/480',
-    price: 299,
-  },
-  {
-    sku: 'NVK-1006',
-    name: 'Dyson V15 Detect',
-    category: 'Home',
-    image: 'https://picsum.photos/seed/novakart-dyson/720/480',
-    price: 699.99,
-  },
-  {
-    sku: 'NVK-1007',
-    name: 'Amazon Echo Dot',
-    category: 'Smart Home',
-    image: 'https://picsum.photos/seed/novakart-echo/720/480',
-    price: 49.99,
-  },
-  {
-    sku: 'NVK-1008',
-    name: 'Apple Watch Series 9',
-    category: 'Wearables',
-    image: 'https://picsum.photos/seed/novakart-watch/720/480',
-    price: 399,
-  },
-  {
-    sku: 'NVK-1009',
-    name: 'LG C3 OLED TV',
-    category: 'TVs',
-    image: 'https://picsum.photos/seed/novakart-lg-tv/720/480',
-    price: 1499.99,
-  },
-  {
-    sku: 'NVK-1010',
-    name: 'Kindle Paperwhite',
-    category: 'E-Readers',
-    image: 'https://picsum.photos/seed/novakart-kindle/720/480',
-    price: 139.99,
+    count: 220,
+    brands: ['Stride', 'Aero', 'Flex', 'Urban', 'Trail', 'Sprint', 'Pulse', 'Drift'],
+    lines: ['Runner', 'Street', 'Sport', 'Active', 'Lite', 'Flow'],
+    priceMin: 35,
+    priceMax: 280,
+    baseDiscount: 18,
+    baseDelivery: 19,
+    baseDeliveryDays: 2,
   },
 ];
+
+function seededRandomNumber(seed: number, salt: number): number {
+  const x = Math.sin(seed * 9301 + salt * 49297 + 233280) * 10000;
+  return x - Math.floor(x);
+}
+
+function seasonFromMonth(month: number): string {
+  if (month === 11 || month === 0 || month === 1) return 'Winter';
+  if (month >= 2 && month <= 4) return 'Summer';
+  if (month >= 5 && month <= 8) return 'Monsoon';
+  return 'Festive';
+}
+
+function seasonAdjustmentsValue(season: string): { discountAdj: number; chargeAdj: number; dayAdj: number } {
+  const map: Record<string, { discountAdj: number; chargeAdj: number; dayAdj: number }> = {
+    Winter: { discountAdj: 4, chargeAdj: 2, dayAdj: 1 },
+    Summer: { discountAdj: 6, chargeAdj: 1, dayAdj: 0 },
+    Monsoon: { discountAdj: 9, chargeAdj: 4, dayAdj: 2 },
+    Festive: { discountAdj: 12, chargeAdj: 6, dayAdj: 1 },
+  };
+  return map[season] ?? { discountAdj: 5, chargeAdj: 2, dayAdj: 1 };
+}
+
+function dayAdjustmentsValue(dayName: string): { discountAdj: number; chargeAdj: number; dayAdj: number } {
+  const map: Record<string, { discountAdj: number; chargeAdj: number; dayAdj: number }> = {
+    Monday: { discountAdj: 5, chargeAdj: -2, dayAdj: 0 },
+    Tuesday: { discountAdj: 4, chargeAdj: -1.5, dayAdj: 0 },
+    Wednesday: { discountAdj: 3, chargeAdj: -1, dayAdj: 0 },
+    Thursday: { discountAdj: 2, chargeAdj: 0, dayAdj: 0 },
+    Friday: { discountAdj: 1, chargeAdj: 1.5, dayAdj: 0 },
+    Saturday: { discountAdj: -2, chargeAdj: 3.5, dayAdj: 1 },
+    Sunday: { discountAdj: -3, chargeAdj: 4, dayAdj: 1 },
+  };
+  return map[dayName] ?? { discountAdj: 0, chargeAdj: 0, dayAdj: 0 };
+}
+
+function generateFallbackInventory(seed: number, referenceDate: Date): { catalog: InventoryCatalogItem[]; context: InventoryContext } {
+  const season = seasonFromMonth(referenceDate.getMonth());
+  const dayName = referenceDate.toLocaleDateString('en-US', { weekday: 'long' });
+  const dayType = dayName === 'Saturday' || dayName === 'Sunday' ? 'Weekend' : 'Weekday';
+
+  const seasonAdj = seasonAdjustmentsValue(season);
+  const dayAdj = dayAdjustmentsValue(dayName);
+
+  const catalog: InventoryCatalogItem[] = [];
+  let globalIndex = 0;
+
+  for (const blueprint of INVENTORY_BLUEPRINTS) {
+    for (let itemIndex = 0; itemIndex < blueprint.count; itemIndex += 1) {
+      globalIndex += 1;
+      const saltBase = globalIndex * 97 + seed * 13;
+      const brand = blueprint.brands[itemIndex % blueprint.brands.length];
+      const line = blueprint.lines[itemIndex % blueprint.lines.length];
+      const modelNumber = 100 + itemIndex;
+      const name = `${brand} ${line} ${modelNumber}`;
+
+      const priceNoise = seededRandomNumber(seed, saltBase + 7);
+      const price = Number((blueprint.priceMin + priceNoise * (blueprint.priceMax - blueprint.priceMin)).toFixed(2));
+
+      const discountNoise = Math.floor(seededRandomNumber(seed, saltBase + 19) * 11);
+      const discountPercent = Math.max(
+        5,
+        Math.min(65, blueprint.baseDiscount + seasonAdj.discountAdj + dayAdj.discountAdj + discountNoise - 4),
+      );
+
+      const discountedPrice = Number((price * (1 - discountPercent / 100)).toFixed(2));
+
+      const deliveryNoise = Math.floor(seededRandomNumber(seed, saltBase + 31) * 8);
+      const deliveryCharge = Number(
+        Math.max(0, blueprint.baseDelivery + seasonAdj.chargeAdj + dayAdj.chargeAdj + deliveryNoise - 3).toFixed(2),
+      );
+
+      const estimatedDeliveryDays = Math.max(
+        1,
+        blueprint.baseDeliveryDays + seasonAdj.dayAdj + dayAdj.dayAdj + Math.floor(seededRandomNumber(seed, saltBase + 43) * 2),
+      );
+
+      const stockUnits = Math.floor(1 + seededRandomNumber(seed, saltBase + 59) * 95);
+      const stockStatus = stockUnits > 28 ? 'In Stock' : stockUnits > 9 ? 'Low Stock' : 'Out of Stock';
+
+      catalog.push({
+        sku: `NVK-${blueprint.slug}-${String(itemIndex + 1).padStart(4, '0')}`,
+        name,
+        category: blueprint.category,
+        image: `https://picsum.photos/seed/novakart-${blueprint.slug.toLowerCase()}-${itemIndex + 1}/720/480`,
+        price,
+        discount_percent: discountPercent,
+        discounted_price: discountedPrice,
+        delivery_charge: deliveryCharge,
+        estimated_delivery_days: estimatedDeliveryDays,
+        stock_units: stockUnits,
+        stock_status: stockStatus,
+        season,
+        day_name: dayName,
+      });
+    }
+  }
+
+  return {
+    catalog,
+    context: {
+      season,
+      day_name: dayName,
+      day_type: dayType,
+      generated_items: catalog.length,
+      category_breakdown: {
+        Laptops: 220,
+        Mobiles: 220,
+        Footwear: 220,
+      },
+    },
+  };
+}
 
 function parsePayload(payload: unknown): Record<string, any> {
   if (payload && typeof payload === 'object') {
@@ -221,6 +314,7 @@ function App() {
   const [activeAgent, setActiveAgent] = useState<string>('System');
   const [view, setView] = useState<ViewMode>('tracking');
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [inventoryCategory, setInventoryCategory] = useState<string>('Laptops');
   const [handoff, setHandoff] = useState<HandoffTransition | null>(null);
   const [isSystemEntering, setIsSystemEntering] = useState(false);
 
@@ -250,15 +344,30 @@ function App() {
     let step = 0;
     setLogs([]);
     setCurrentState('IDLE');
-    const fallbackSelectedSku =
-      FALLBACK_INVENTORY_CATALOG[Math.max(0, Number(orderId || '1') - 1)]?.sku ?? 'NVK-1001';
+    const mockOrderLabels: Record<string, string> = {
+      '1': 'AstraBook Pro 100',
+      '2': 'Vertex One 100',
+      '3': 'Stride Runner 100',
+      '4': 'NovaBook Air 101',
+      '5': 'Nova Pro 101',
+      '6': 'Aero Street 101',
+      '7': 'ZenBook Max 102',
+      '8': 'Astra Max 102',
+      '9': 'Flex Sport 102',
+      '10': 'TitanBook Ultra 103',
+    };
+    const mockItemName = mockOrderLabels[orderId] ?? 'AstraBook Pro 100';
+    const fallbackPack = generateFallbackInventory(seed, new Date());
+    const fallbackCatalog = fallbackPack.catalog;
+    const fallbackContext = fallbackPack.context;
+    const fallbackSelectedSku = fallbackCatalog[Math.max(0, Number(orderId || '1') - 1)]?.sku ?? 'NVK-LAP-0001';
 
     const mockFlow: Array<{ agent: string; state: AgentState; payload: Record<string, any> }> = [
       { agent: 'System', state: 'IDLE', payload: { status: 'initialized', seed } },
       {
         agent: 'OrderAgent',
         state: 'ORDER_PLACED',
-        payload: { customer: 'John Doe', item: 'MacBook Pro', amount: 1999.99 },
+        payload: { customer: 'John Doe', item: mockItemName, amount: 1999.99 },
       },
       {
         agent: 'InventoryAgent',
@@ -267,11 +376,8 @@ function App() {
           stock_status: 'In Stock',
           confidence: 0.85,
           selected_sku: fallbackSelectedSku,
-          inventory_catalog: FALLBACK_INVENTORY_CATALOG.map((item, index) => ({
-            ...item,
-            stock_units: 6 + ((index * 3) % 14),
-            stock_status: index % 3 === 0 ? 'Low Stock' : 'In Stock',
-          })),
+          inventory_context: fallbackContext,
+          inventory_catalog: fallbackCatalog,
         },
       },
       {
@@ -441,7 +547,7 @@ function App() {
   const inventoryCatalog = useMemo<InventoryCatalogItem[]>(() => {
     const rawCatalog = inventoryData.inventory_catalog;
     if (!Array.isArray(rawCatalog) || rawCatalog.length === 0) {
-      return FALLBACK_INVENTORY_CATALOG;
+      return generateFallbackInventory(seed, new Date()).catalog;
     }
 
     return rawCatalog.map((item: any, index: number) => ({
@@ -450,10 +556,48 @@ function App() {
       category: String(item.category ?? 'General'),
       image: String(item.image ?? `https://picsum.photos/seed/novakart-${index}/720/480`),
       price: Number(item.price ?? 0),
+      discount_percent: Number(item.discount_percent ?? 0),
+      discounted_price: Number(item.discounted_price ?? item.price ?? 0),
+      delivery_charge: Number(item.delivery_charge ?? 0),
+      estimated_delivery_days: Number(item.estimated_delivery_days ?? 0),
+      season: String(item.season ?? ''),
+      day_name: String(item.day_name ?? ''),
       stock_units: Number(item.stock_units ?? 0),
       stock_status: String(item.stock_status ?? 'Unknown'),
     }));
-  }, [inventoryData]);
+  }, [inventoryData, seed]);
+
+  const inventoryContext = useMemo<InventoryContext>(() => {
+    const rawContext = inventoryData.inventory_context;
+    if (rawContext && typeof rawContext === 'object') {
+      const parsed = rawContext as Record<string, unknown>;
+      return {
+        season: String(parsed.season ?? ''),
+        day_name: String(parsed.day_name ?? ''),
+        day_type: String(parsed.day_type ?? ''),
+        generated_items: Number(parsed.generated_items ?? inventoryCatalog.length),
+        category_breakdown:
+          typeof parsed.category_breakdown === 'object' && parsed.category_breakdown
+            ? (parsed.category_breakdown as Record<string, number>)
+            : {},
+      };
+    }
+
+    const inferredSeason = inventoryCatalog[0]?.season ?? seasonFromMonth(new Date().getMonth());
+    const inferredDay = inventoryCatalog[0]?.day_name ?? new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const breakdown = inventoryCatalog.reduce<Record<string, number>>((acc, item) => {
+      acc[item.category] = (acc[item.category] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      season: inferredSeason,
+      day_name: inferredDay,
+      day_type: inferredDay === 'Saturday' || inferredDay === 'Sunday' ? 'Weekend' : 'Weekday',
+      generated_items: inventoryCatalog.length,
+      category_breakdown: breakdown,
+    };
+  }, [inventoryCatalog, inventoryData]);
 
   const selectedInventorySku = useMemo(() => {
     if (typeof inventoryData.selected_sku === 'string' && inventoryData.selected_sku.trim().length > 0) {
@@ -463,6 +607,22 @@ function App() {
     const matched = inventoryCatalog.find((item) => item.name.toLowerCase() === orderedItemName);
     return matched?.sku ?? '';
   }, [inventoryCatalog, inventoryData, orderData]);
+
+  const inventoryCategories = useMemo(() => {
+    return Object.entries(
+      inventoryCatalog.reduce<Record<string, number>>((acc, item) => {
+        acc[item.category] = (acc[item.category] ?? 0) + 1;
+        return acc;
+      }, {}),
+    ).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [inventoryCatalog]);
+
+  const filteredInventoryCatalog = useMemo(() => {
+    if (inventoryCategory === 'All') {
+      return inventoryCatalog;
+    }
+    return inventoryCatalog.filter((item) => item.category === inventoryCategory);
+  }, [inventoryCatalog, inventoryCategory]);
 
   const visitedStageIndices = STAGES.reduce<number[]>((acc, stage, index) => {
     if (logs.some((log) => log.agent === stage.agent)) {
@@ -519,13 +679,20 @@ function App() {
   useEffect(() => {
     if (view !== 'tracking') {
       setInventoryOpen(false);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (inventoryCategories.length === 0) {
+      setInventoryCategory('All');
       return;
     }
 
-    if (activeAgent === 'InventoryAgent' && currentState === 'VERIFIED') {
-      setInventoryOpen(true);
+    const hasActive = inventoryCategories.some(([name]) => name === inventoryCategory);
+    if (!hasActive) {
+      setInventoryCategory(inventoryCategories[0][0]);
     }
-  }, [activeAgent, currentState, view]);
+  }, [inventoryCategories, inventoryCategory]);
 
   useEffect(() => {
     if (!inventoryOpen) {
@@ -644,11 +811,16 @@ function App() {
                 value={orderId}
                 onChange={(event) => setOrderId(event.target.value)}
               >
-                <option value="1">1 - MacBook Pro M3</option>
-                <option value="2">2 - Samsung S24 Ultra</option>
-                <option value="3">3 - Nike Air Max</option>
-                <option value="4">4 - Sony WH-1000XM5</option>
-                <option value="5">5 - Nintendo Switch</option>
+                <option value="1">1 - AstraBook Pro 100</option>
+                <option value="2">2 - Vertex One 100</option>
+                <option value="3">3 - Stride Runner 100</option>
+                <option value="4">4 - NovaBook Air 101</option>
+                <option value="5">5 - Nova Pro 101</option>
+                <option value="6">6 - Aero Street 101</option>
+                <option value="7">7 - ZenBook Max 102</option>
+                <option value="8">8 - Astra Max 102</option>
+                <option value="9">9 - Flex Sport 102</option>
+                <option value="10">10 - TitanBook Ultra 103</option>
               </select>
             </label>
 
@@ -685,7 +857,16 @@ function App() {
                   <p className="section-kicker">Step Progress Journey</p>
                   <h2>Live Order Pipeline</h2>
                 </div>
-                <span className={stateClass(currentState)}>{currentBadgeLabel}</span>
+                <div className="section-actions">
+                  <span className={stateClass(currentState)}>{currentBadgeLabel}</span>
+                  <button
+                    type="button"
+                    className="button inventory-vault-btn"
+                    onClick={() => setInventoryOpen(true)}
+                  >
+                    Inventory Vault
+                  </button>
+                </div>
               </div>
 
               <div className="stage-list">
@@ -793,17 +974,13 @@ function App() {
                             </p>
                             <p>
                               <span>Tracked SKUs</span>
-                              <strong>{inventoryCatalog.length}</strong>
+                              <strong>{inventoryContext.generated_items || inventoryCatalog.length}</strong>
                             </p>
                             <p>
-                              <span>Agent Action</span>
-                              <button
-                                type="button"
-                                className="button button-ghost inventory-open-btn"
-                                onClick={() => setInventoryOpen(true)}
-                              >
-                                Open Live Inventory
-                              </button>
+                              <span>Dynamic Profile</span>
+                              <strong>
+                                {inventoryContext.day_name || '-'} / {inventoryContext.season || '-'}
+                              </strong>
                             </p>
                             <p className="decision" style={{ gridColumn: '1 / -1' }}>
                               {(inventoryData.stock_status || '').toLowerCase() === 'low stock'
@@ -1081,38 +1258,71 @@ function App() {
           </div>
 
           <p className="inventory-sheet-subtitle">
-            Real-time stock signals, catalog images, and SKU health controlled by the inventory stage.
+            Browse categorized inventory with dynamic discounts and delivery charges that adapt to current day and season.
           </p>
 
+          <div className="inventory-toolbar">
+            <div className="inventory-context-strip">
+              <span className="inventory-context-pill">{inventoryContext.generated_items} Items</span>
+              <span className="inventory-context-pill">{inventoryContext.season || 'Season'} Season</span>
+              <span className="inventory-context-pill">{inventoryContext.day_name || 'Day'} Pricing</span>
+              <span className="inventory-context-pill">{inventoryContext.day_type || 'Cycle'} Logistics</span>
+            </div>
+            <div className="inventory-category-tabs">
+              {inventoryCategories.map(([categoryName, count]) => (
+                <button
+                  key={categoryName}
+                  type="button"
+                  className={`inventory-category-tab ${inventoryCategory === categoryName ? 'is-active' : ''}`}
+                  onClick={() => setInventoryCategory(categoryName)}
+                >
+                  {categoryName} <span>{count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="inventory-grid">
-            {inventoryCatalog.map((item, index) => {
+            {filteredInventoryCatalog.map((item, index) => {
               const isSelected = selectedInventorySku !== '' && item.sku === selectedInventorySku;
               const units = Number(item.stock_units ?? 0);
               const stockStatus = String(item.stock_status ?? 'Unknown');
               const stockPercent = Math.max(8, Math.min(100, Math.round((units / 30) * 100)));
+              const basePrice = Number(item.price ?? 0);
+              const discountPrice = Number(item.discounted_price ?? basePrice);
+              const discountPercent = Number(item.discount_percent ?? 0);
+              const deliveryCharge = Number(item.delivery_charge ?? 0);
+              const deliveryDays = Number(item.estimated_delivery_days ?? 0);
 
               return (
                 <article
                   key={item.sku}
                   className={`inventory-card ${isSelected ? 'is-selected' : ''}`}
-                  style={{ animationDelay: `${index * 65}ms` }}
+                  style={{ animationDelay: `${(index % 12) * 45}ms` }}
                 >
                   <div className="inventory-image-wrap">
                     <img src={item.image} alt={item.name} loading="lazy" />
                     {isSelected && <span className="inventory-current-chip">Current Order</span>}
+                    <span className="inventory-discount-chip">{discountPercent}% OFF</span>
                   </div>
 
                   <div className="inventory-card-body">
                     <p className="inventory-category">{item.category}</p>
                     <h4>{item.name}</h4>
                     <div className="inventory-meta-row">
-                      <strong>{formatCurrency(item.price)}</strong>
+                      <div className="inventory-price-stack">
+                        <strong>{formatCurrency(discountPrice)}</strong>
+                        <span className="inventory-mrp">MRP {formatCurrency(basePrice)}</span>
+                      </div>
                       <span className={`inventory-stock-badge ${stockTone(stockStatus)}`}>{stockStatus}</span>
                     </div>
                     <div className="inventory-stock-bar">
                       <span style={{ width: `${stockPercent}%` }} />
                     </div>
                     <p className="inventory-units">{units} units available</p>
+                    <p className="inventory-delivery-line">
+                      Delivery: {formatCurrency(deliveryCharge)} | ETA: {deliveryDays} day{deliveryDays === 1 ? '' : 's'}
+                    </p>
                   </div>
                 </article>
               );

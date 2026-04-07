@@ -35,3 +35,4 @@ class OrderData(BaseModel):
     metrics: Dict[str, float] = {}
     inventory_catalog: List[Dict[str, Any]] = []
     selected_sku: str = ""
+    inventory_context: Dict[str, Any] = {}
