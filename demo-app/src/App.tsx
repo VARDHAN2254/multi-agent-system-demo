@@ -321,6 +321,7 @@ const PRODUCT_DATA_MAP: Record<string, { images: string[]; features: string[][] 
     ]
   }
 };
+const EMPTY_PAYLOAD: Record<string, any> = Object.freeze({});
 
 function fallbackAvatarLabel(agent: string): string {
   const normalized = agent
@@ -485,7 +486,60 @@ function parsePayload(payload: unknown): Record<string, any> {
       return { value: payload };
     }
   }
-  return {};
+  return EMPTY_PAYLOAD;
+}
+
+function compactPayloadForProtocol(payload: unknown): Record<string, unknown> {
+  const parsed = parsePayload(payload);
+  if (parsed === EMPTY_PAYLOAD || Object.keys(parsed).length === 0) {
+    return { note: 'no payload yet' };
+  }
+
+  const compact: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (key === 'inventory_catalog' && Array.isArray(value)) {
+      const categories = Array.from(
+        new Set(
+          value
+            .map((entry) =>
+              entry && typeof entry === 'object'
+                ? String((entry as Record<string, unknown>).category ?? 'General')
+                : 'General',
+            )
+            .slice(0, 200),
+        ),
+      );
+      compact.inventory_catalog_items = value.length;
+      compact.inventory_categories = categories;
+      continue;
+    }
+
+    if (key === 'inventory_context' && value && typeof value === 'object') {
+      const ctx = value as Record<string, unknown>;
+      compact.inventory_context = {
+        season: ctx.season ?? '-',
+        day_name: ctx.day_name ?? '-',
+        day_type: ctx.day_type ?? '-',
+        generated_items: ctx.generated_items ?? 0,
+      };
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      compact[key] = `${value.length} items`;
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      compact[key] = `${Object.keys(value as Record<string, unknown>).length} fields`;
+      continue;
+    }
+
+    compact[key] = value;
+  }
+
+  return compact;
 }
 
 function stateClass(state: AgentState): string {
@@ -761,11 +815,12 @@ function App() {
     () => parsePayload([...logs].reverse().find((log) => log.agent === 'DeliveryAgent')?.payload),
     [logs],
   );
+  const fallbackInventoryPack = useMemo(() => generateFallbackInventory(seed, new Date()), [seed]);
 
   const inventoryCatalog = useMemo<InventoryCatalogItem[]>(() => {
     const rawCatalog = inventoryData.inventory_catalog;
     if (!Array.isArray(rawCatalog) || rawCatalog.length === 0) {
-      return generateFallbackInventory(seed, new Date()).catalog;
+      return fallbackInventoryPack.catalog;
     }
 
     return rawCatalog.map((item: any, index: number) => {
@@ -796,7 +851,7 @@ function App() {
         features: Array.isArray(item.features) ? item.features : featsTarget,
       };
     });
-  }, [inventoryData, seed]);
+  }, [inventoryData, seed, fallbackInventoryPack]);
 
   const inventoryContext = useMemo<InventoryContext>(() => {
     const rawContext = inventoryData.inventory_context;
@@ -814,8 +869,8 @@ function App() {
       };
     }
 
-    const inferredSeason = inventoryCatalog[0]?.season ?? seasonFromMonth(new Date().getMonth());
-    const inferredDay = inventoryCatalog[0]?.day_name ?? new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const inferredSeason = inventoryCatalog[0]?.season ?? fallbackInventoryPack.context.season;
+    const inferredDay = inventoryCatalog[0]?.day_name ?? fallbackInventoryPack.context.day_name;
     const breakdown = inventoryCatalog.reduce<Record<string, number>>((acc, item) => {
       acc[item.category] = (acc[item.category] ?? 0) + 1;
       return acc;
@@ -828,7 +883,7 @@ function App() {
       generated_items: inventoryCatalog.length,
       category_breakdown: breakdown,
     };
-  }, [inventoryCatalog, inventoryData]);
+  }, [inventoryCatalog, inventoryData, fallbackInventoryPack]);
 
   const selectedInventorySku = useMemo(() => {
     if (typeof inventoryData.selected_sku === 'string' && inventoryData.selected_sku.trim().length > 0) {
@@ -861,6 +916,7 @@ function App() {
     () => filteredInventoryCatalog.slice(0, inventoryVisibleCount),
     [filteredInventoryCatalog, inventoryVisibleCount],
   );
+  const protocolLogs = useMemo(() => logs.slice(-80), [logs]);
 
   const visitedStageIndices = STAGES.reduce<number[]>((acc, stage, index) => {
     if (logs.some((log) => log.agent === stage.agent)) {
@@ -1505,8 +1561,9 @@ function App() {
               </div>
 
               <div className={`log-panel ${isRunning ? 'is-running' : ''}`} ref={logContainerRef}>
-                {logs.map((log, index) => {
+                {protocolLogs.map((log, index) => {
                   const profile = getAgentProfile(log.agent);
+                  const protocolPayload = compactPayloadForProtocol(log.payload);
                   return (
                     <article
                       key={`${log.id}-${log.timestamp}-${index}`}
@@ -1520,7 +1577,7 @@ function App() {
                         </span>
                         <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                       </div>
-                      <pre className="log-json">{`{\n  "run_id": "${log.run_id}",\n  "agent": "${log.agent}",\n  "state": "${log.state}",\n  "order_id": "${log.order_id}",\n  "payload": ${JSON.stringify(log.payload, null, 2)}\n}`}</pre>
+                      <pre className="log-json">{`{\n  "run_id": "${log.run_id}",\n  "agent": "${log.agent}",\n  "state": "${log.state}",\n  "order_id": "${log.order_id}",\n  "payload": ${JSON.stringify(protocolPayload, null, 2)}\n}`}</pre>
                     </article>
                   );
                 })}
