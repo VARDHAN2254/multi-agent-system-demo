@@ -32,7 +32,7 @@ class OrderData(BaseModel):
     fraud_risk: float = 0.0
     shipping_partner: str = ""
     delivery_time_estimate: int = 0
-    metrics: Dict[str, float] = {}
-    inventory_catalog: List[Dict[str, Any]] = []
+    metrics: Dict[str, float] = Field(default_factory=dict)
+    inventory_catalog: List[Dict[str, Any]] = Field(default_factory=list)
     selected_sku: str = ""
-    inventory_context: Dict[str, Any] = {}
+    inventory_context: Dict[str, Any] = Field(default_factory=dict)

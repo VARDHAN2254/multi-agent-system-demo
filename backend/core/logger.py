@@ -1,7 +1,8 @@
 import sqlite3
 import json
-from datetime import datetime
-from backend.models.state import MessageProtocol, AgentState
+from typing import Any, Dict, List, Optional
+
+from backend.models.state import MessageProtocol
 
 class RunLogger:
     def __init__(self, db_path="runs.db"):
@@ -49,9 +50,37 @@ class RunLogger:
             ))
             conn.commit()
             
-    def get_run_history(self, run_id: str):
+    def get_run_history(
+        self,
+        run_id: str,
+        since_id: Optional[int] = None,
+        limit: Optional[int] = None,
+        include_payload: bool = True,
+    ) -> List[Dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute('SELECT * FROM run_logs WHERE run_id = ? ORDER BY timestamp ASC', (run_id,))
-            return [dict(row) for row in cursor.fetchall()]
+            query = '''
+                SELECT id, run_id, agent, state, order_id, payload, timestamp
+                FROM run_logs
+                WHERE run_id = ?
+            '''
+            params: List[Any] = [run_id]
 
+            if since_id is not None:
+                query += ' AND id > ?'
+                params.append(since_id)
+
+            query += ' ORDER BY id ASC'
+
+            if limit is not None:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor = conn.execute(query, tuple(params))
+            rows = [dict(row) for row in cursor.fetchall()]
+
+            if not include_payload:
+                for row in rows:
+                    row.pop("payload", None)
+
+            return rows

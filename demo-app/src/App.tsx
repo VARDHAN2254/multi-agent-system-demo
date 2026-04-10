@@ -523,6 +523,7 @@ function App() {
   const [isSystemEntering, setIsSystemEntering] = useState(false);
 
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastFetchedLogIdRef = useRef<number | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const previousActiveStageRef = useRef(-1);
   const previousViewRef = useRef<ViewMode>('tracking');
@@ -540,6 +541,7 @@ function App() {
     setLogs([]);
     setCurrentState('IDLE');
     setActiveAgent('System');
+    lastFetchedLogIdRef.current = null;
     setInventoryOpen(false);
     setHandoff(null);
   };
@@ -659,14 +661,21 @@ function App() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE}/logs/${activeRunId}`);
+        const params = new URLSearchParams({
+          limit: '500',
+        });
+        if (lastFetchedLogIdRef.current !== null) {
+          params.set('since_id', String(lastFetchedLogIdRef.current));
+        }
+
+        const res = await fetch(`${API_BASE}/logs/${activeRunId}?${params.toString()}`);
         const data = await res.json();
 
         if (!data.history || data.history.length === 0) {
           return;
         }
 
-        const parsedLogs: LogMessage[] = data.history.map((log: any, idx: number) => {
+        const parsedLogs: LogMessage[] = data.history.map((log: any) => {
           let payload: unknown = log.payload;
           if (typeof payload === 'string') {
             try {
@@ -677,7 +686,7 @@ function App() {
           }
 
           return {
-            id: idx,
+            id: Number(log.id ?? 0),
             run_id: log.run_id,
             agent: log.agent,
             state: log.state,
@@ -687,12 +696,23 @@ function App() {
           };
         });
 
-        setLogs(parsedLogs);
-        const lastLog = parsedLogs[parsedLogs.length - 1];
-        setCurrentState(lastLog.state);
-        setActiveAgent(lastLog.agent);
+        setLogs((prevLogs) => {
+          const knownIds = new Set(prevLogs.map((entry) => entry.id));
+          const nextLogs = [...prevLogs];
+          for (const log of parsedLogs) {
+            if (!knownIds.has(log.id)) {
+              nextLogs.push(log);
+            }
+          }
+          return nextLogs;
+        });
 
-        if (TERMINAL_STATES.has(lastLog.state)) {
+        const latestLog = parsedLogs[parsedLogs.length - 1];
+        lastFetchedLogIdRef.current = Number(data.last_id ?? latestLog.id);
+        setCurrentState(latestLog.state);
+        setActiveAgent(latestLog.agent);
+
+        if (TERMINAL_STATES.has(latestLog.state)) {
           clearInterval(interval);
         }
       } catch (error) {

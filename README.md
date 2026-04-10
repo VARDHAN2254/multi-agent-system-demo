@@ -77,7 +77,11 @@ npm run dev
   - Body: `{ "order_id": "1", "seed": 42 }`
   - Starts an asynchronous run and returns `run_id`.
 - `GET /api/logs/{run_id}`
-  - Returns full ordered transition history for that run.
+  - Returns ordered transition history for that run.
+  - Query params:
+    - `since_id` (optional): returns only rows with `id > since_id`.
+    - `limit` (optional, default `500`): max rows per response (clamped to `1..2000`).
+    - `include_payload` (optional, default `true`): when `false`, omits payload body for lighter polling.
 
 Example:
 
