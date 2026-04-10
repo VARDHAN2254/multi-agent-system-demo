@@ -37,6 +37,7 @@ interface InventorySheetProps {
   selectedSku: string;
   formatCurrency: (value: unknown) => string;
   stockTone: (status: string) => string;
+  onSelectItem: (item: InventoryItem) => void;
   onBookItem: (item: InventoryItem) => void;
 }
 
@@ -56,6 +57,7 @@ function InventorySheet({
   selectedSku,
   formatCurrency,
   stockTone,
+  onSelectItem,
   onBookItem,
 }: InventorySheetProps) {
   const virtualGridRef = useRef<HTMLDivElement | null>(null);
@@ -126,6 +128,10 @@ function InventorySheet({
     () => items.slice(startIndex, endIndex),
     [items, startIndex, endIndex],
   );
+  const selectedItem = useMemo(
+    () => items.find((item) => item.sku === selectedSku) ?? null,
+    [items, selectedSku],
+  );
 
   return (
     <div className={`inventory-overlay ${open ? 'is-open' : ''}`} onClick={onClose} aria-hidden={!open}>
@@ -171,6 +177,42 @@ function InventorySheet({
             ))}
           </div>
         </div>
+        {selectedItem && (
+          <div className="inventory-selected-summary">
+            <div className="inventory-selected-head">
+              <p>Selected Item</p>
+              <span>
+                SKU {selectedItem.sku} • {selectedItem.category}
+              </span>
+            </div>
+            <div className="inventory-selected-grid">
+              <p>
+                <span>Rating</span>
+                <strong>{selectedItem.rating?.toFixed(1) ?? '4.5'} ({selectedItem.reviews ?? 0})</strong>
+              </p>
+              <p>
+                <span>Discount</span>
+                <strong>
+                  {Number(selectedItem.discount_percent ?? 0) > 0
+                    ? `${Number(selectedItem.discount_percent)}% OFF`
+                    : 'No active discount'}
+                </strong>
+              </p>
+              <p>
+                <span>Checkout Price</span>
+                <strong>{formatCurrency(selectedItem.discounted_price ?? selectedItem.price)}</strong>
+              </p>
+              <p className="inventory-selected-features">
+                <span>Features</span>
+                <strong>
+                  {Array.isArray(selectedItem.features) && selectedItem.features.length > 0
+                    ? selectedItem.features.join(' • ')
+                    : 'No additional features listed'}
+                </strong>
+              </p>
+            </div>
+          </div>
+        )}
 
         <div
           className="inventory-grid inventory-grid-virtual"
@@ -208,6 +250,7 @@ function InventorySheet({
                     height: `${cardHeight}px`,
                     animationDelay: `${(absoluteIndex % 10) * 35}ms`,
                   }}
+                  onClick={() => onSelectItem(item)}
                   onDoubleClick={() => {
                     onBookItem(item);
                     setPendingBookSku('');
@@ -281,7 +324,8 @@ function InventorySheet({
                     <button
                       type="button"
                       className={`inventory-book-btn ${isSelected ? 'is-selected' : ''}`}
-                      onClick={() => {
+                      onClick={(event) => {
+                        event.stopPropagation();
                         setPendingBookSku(item.sku);
                         setBookingFxSku(item.sku);
                         if (bookingTimerRef.current !== null) {
@@ -301,6 +345,30 @@ function InventorySheet({
                     >
                       {isPending ? 'Booking...' : isSelected ? 'Booked Item' : 'Book This Item'}
                     </button>
+                    <div className="inventory-hover-panel" aria-hidden="true">
+                      <div className="inventory-hover-title">{item.name}</div>
+                      <p>
+                        <span>SKU</span>
+                        <strong>{item.sku}</strong>
+                      </p>
+                      <p>
+                        <span>Rating</span>
+                        <strong>{item.rating?.toFixed(1) ?? '4.5'} ({item.reviews ?? 0})</strong>
+                      </p>
+                      <p>
+                        <span>Discount</span>
+                        <strong>
+                          {discountPercent > 0 ? `${discountPercent}% OFF` : 'No discount'}
+                        </strong>
+                      </p>
+                      <p>
+                        <span>Checkout</span>
+                        <strong>{formatCurrency(discountPrice)}</strong>
+                      </p>
+                      <p className="inventory-hover-features">
+                        {(item.features ?? []).slice(0, 4).join(' • ') || 'No additional features listed'}
+                      </p>
+                    </div>
                   </div>
                 </article>
               );

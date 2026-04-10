@@ -613,7 +613,7 @@ function App() {
     }, 1300);
   };
 
-  const handleBookItem = (item: InventoryCatalogItem) => {
+  const handleSelectInventoryItem = (item: InventoryCatalogItem) => {
     setBookedItem(item);
     const featuredMatch = FEATURED_PRODUCTS.find(
       (product) => product.name.toLowerCase() === item.name.toLowerCase(),
@@ -622,6 +622,10 @@ function App() {
       setOrderId(featuredMatch.id);
     }
     triggerBookingTransition();
+  };
+
+  const handleBookItem = (item: InventoryCatalogItem) => {
+    handleSelectInventoryItem(item);
     window.setTimeout(() => {
       setInventoryOpen(false);
     }, 320);
@@ -1764,6 +1768,7 @@ function App() {
           selectedSku={selectedInventorySku}
           formatCurrency={formatCurrency}
           stockTone={stockTone}
+          onSelectItem={handleSelectInventoryItem}
           onBookItem={handleBookItem}
         />
       </Suspense>

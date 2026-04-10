@@ -1500,6 +1500,63 @@ body {
   color: #ffc690;
 }
 
+.inventory-selected-summary {
+  margin-bottom: 0.75rem;
+  border: 1px solid rgba(255, 190, 130, 0.26);
+  border-radius: 14px;
+  background: linear-gradient(120deg, rgba(255, 169, 90, 0.12), rgba(255, 116, 38, 0.1));
+  padding: 0.7rem 0.8rem;
+  animation: booked-summary-in 420ms var(--ease-flow) both;
+}
+
+.inventory-selected-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: baseline;
+  margin-bottom: 0.42rem;
+}
+
+.inventory-selected-head p {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #ffd8b4;
+}
+
+.inventory-selected-head span {
+  font-size: 0.72rem;
+  color: #f4cfae;
+}
+
+.inventory-selected-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem 0.8rem;
+}
+
+.inventory-selected-grid p {
+  margin: 0;
+  font-size: 0.72rem;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.inventory-selected-grid p span {
+  color: var(--text-dim);
+  font-size: 0.67rem;
+}
+
+.inventory-selected-grid p strong {
+  color: var(--text-main);
+}
+
+.inventory-selected-features {
+  grid-column: 1 / -1;
+}
+
 .inventory-grid {
   display: grid;
   gap: 0.9rem;
@@ -1610,6 +1667,7 @@ body {
 
 .inventory-card-body {
   padding: 0.72rem 0.72rem 0.82rem;
+  position: relative;
 }
 
 .inventory-category {
@@ -1731,6 +1789,68 @@ body {
 .inventory-book-btn.is-selected {
   border-color: rgba(255, 214, 171, 0.7);
   background: linear-gradient(130deg, rgba(255, 191, 134, 0.4), rgba(255, 133, 56, 0.36));
+}
+
+.inventory-hover-panel {
+  position: absolute;
+  inset: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 197, 145, 0.36);
+  background:
+    linear-gradient(140deg, rgba(19, 11, 7, 0.92), rgba(17, 10, 6, 0.96)),
+    radial-gradient(circle at 20% -10%, rgba(255, 169, 95, 0.25), transparent 60%);
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.46), inset 0 0 0 1px rgba(255, 208, 160, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  transition: opacity 260ms var(--ease-out), transform 300ms var(--ease-flow);
+  pointer-events: none;
+  z-index: 5;
+  padding: 0.6rem 0.68rem;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.inventory-card:hover .inventory-hover-panel,
+.inventory-card:focus-within .inventory-hover-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  animation: inventory-hover-glow 420ms var(--ease-flow) both;
+}
+
+.inventory-hover-title {
+  margin: 0 0 0.24rem;
+  font-size: 0.76rem;
+  color: #ffe2c3;
+  font-weight: 700;
+}
+
+.inventory-hover-panel p {
+  margin: 0;
+  font-size: 0.66rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: #eecfb2;
+}
+
+.inventory-hover-panel p span {
+  color: #bca58f;
+}
+
+.inventory-hover-panel p strong {
+  color: #fff1dd;
+  text-align: right;
+}
+
+.inventory-hover-features {
+  margin-top: 0.18rem !important;
+  display: block !important;
+  line-height: 1.45;
+  color: #ffd8b2 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 0.28rem;
 }
 
 .inventory-more-row {
@@ -1924,6 +2044,15 @@ body {
 
   .booked-item-grid {
     grid-template-columns: 1fr;
+  }
+
+  .inventory-selected-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-selected-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -2320,6 +2449,28 @@ body {
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes booked-summary-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes inventory-hover-glow {
+  0% {
+    box-shadow: 0 12px 18px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(255, 208, 160, 0.06);
+  }
+  100% {
+    box-shadow: 0 26px 44px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 214, 170, 0.14);
   }
 }
 
