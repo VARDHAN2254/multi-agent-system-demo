@@ -41,7 +41,7 @@ interface InventorySheetProps {
 }
 
 const GRID_GAP = 14;
-const CARD_BODY_ESTIMATE = 148;
+const CARD_BODY_ESTIMATE = 220;
 const OVERSCAN_ROWS = 4;
 
 function InventorySheet({
@@ -207,6 +207,11 @@ function InventorySheet({
                     width: `${columnWidth}px`,
                     height: `${cardHeight}px`,
                     animationDelay: `${(absoluteIndex % 10) * 35}ms`,
+                  }}
+                  onDoubleClick={() => {
+                    onBookItem(item);
+                    setPendingBookSku('');
+                    setBookingFxSku(item.sku);
                   }}
                 >
                   <div className="inventory-image-wrap">
