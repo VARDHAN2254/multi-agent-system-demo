@@ -125,9 +125,13 @@ function App() {
 
   useEffect(() => {
     if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+      setTimeout(() => {
+        if (logContainerRef.current) {
+          logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+        }
+      }, 10);
     }
-  }, [logs]);
+  }, [logs, currentState]);
 
   const extractMetrics = () => {
      let comp = 0, rel = 0, coh = 0, time = 0, pass = "false";
