@@ -1137,6 +1137,10 @@ function App() {
 
   const bookedDiscountPercent = Math.max(0, Number(bookedItem?.discount_percent ?? 0));
   const bookedFeaturePreview = Array.isArray(bookedItem?.features) ? bookedItem!.features.slice(0, 3) : [];
+  const bookedRatingValue = Number(bookedItem?.rating ?? Number.NaN);
+  const bookedRatingLabel = Number.isFinite(bookedRatingValue) ? bookedRatingValue.toFixed(1) : '4.5';
+  const bookedReviewCount = Math.max(0, Number(bookedItem?.reviews ?? 0));
+  const bookedCheckoutPrice = formatCurrency(bookedItem?.discounted_price ?? bookedItem?.price ?? 0);
 
   return (
     <div
@@ -1278,17 +1282,19 @@ function App() {
                   <div className="booked-item-stats">
                     <p>
                       <span>Rating</span>
-                      <strong>
-                        {bookedItem.rating?.toFixed(1) ?? '4.5'} ({bookedItem.reviews ?? 0})
+                      <strong className="booked-item-stat-value">
+                        {bookedRatingLabel} ({bookedReviewCount})
                       </strong>
                     </p>
                     <p>
                       <span>Discount</span>
-                      <strong>{bookedDiscountPercent > 0 ? `${bookedDiscountPercent}% OFF` : 'No active discount'}</strong>
+                      <strong className="booked-item-stat-value">
+                        {bookedDiscountPercent > 0 ? `${bookedDiscountPercent}% OFF` : 'No active discount'}
+                      </strong>
                     </p>
                     <p>
                       <span>Checkout Price</span>
-                      <strong>{formatCurrency(bookedItem.discounted_price ?? bookedItem.price)}</strong>
+                      <strong className="booked-item-stat-value">{bookedCheckoutPrice}</strong>
                     </p>
                   </div>
                 </div>

@@ -432,6 +432,7 @@ body {
   background: rgba(0, 0, 0, 0.22);
   padding: 0.85rem 0.92rem;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   transition: border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--ease-out);
 }
@@ -440,6 +441,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 0;
   opacity: 0;
   background: linear-gradient(112deg, rgba(255, 186, 121, 0.24), transparent 36%, rgba(255, 120, 44, 0.18));
   transition: opacity 320ms ease;
@@ -465,6 +467,8 @@ body {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.72rem;
+  position: relative;
+  z-index: 1;
 }
 
 .booked-item-kicker {
@@ -480,6 +484,8 @@ body {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
   gap: 0.95rem;
+  position: relative;
+  z-index: 1;
 }
 
 .booked-item-main h4 {
@@ -529,10 +535,26 @@ body {
   text-align: right;
 }
 
+.booked-item-stat-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+  padding: 0.16rem 0.46rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 216, 177, 0.34);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff8ef !important;
+  font-weight: 700;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.38);
+}
+
 .booked-item-empty {
   margin: 0;
   font-size: 0.78rem;
   color: var(--text-soft);
+  position: relative;
+  z-index: 1;
 }
 
 .field {
